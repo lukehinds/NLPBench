@@ -38,10 +38,10 @@ class ConfigManager:
                 return DatasetConfig()
 
         # Try default config paths
-        for config_path in self.config_paths:
-            if config_path.exists():
-                console.print(f"[blue]Loading config from: {config_path}[/blue]")
-                return self._load_config_file(config_path)
+        for default_config_path in self.config_paths:
+            if default_config_path.exists():
+                console.print(f"[blue]Loading config from: {default_config_path}[/blue]")
+                return self._load_config_file(default_config_path)
 
         # No config found, use defaults
         console.print("[blue]No config file found. Using default configuration.[/blue]")
@@ -79,7 +79,7 @@ class ConfigManager:
             config_path_obj = Path(config_path)
             config_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-            config_dict = config.dict()
+            config_dict = config.model_dump()
 
             if format.lower() == "json":
                 config_content = json.dumps(config_dict, indent=2, ensure_ascii=False)
@@ -107,7 +107,7 @@ class ConfigManager:
         """Get a configuration template as a string."""
 
         default_config = DatasetConfig()
-        config_dict = default_config.dict()
+        config_dict = default_config.model_dump()
 
         if format.lower() == "json":
             return json.dumps(config_dict, indent=2, ensure_ascii=False)

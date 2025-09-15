@@ -1,15 +1,20 @@
 # NLPBench - Dataset Quality Measurement Tool
 
-A comprehensive tool for analyzing the quality of datasets using Great Expectations. NLPBench provides detailed quality assessments, beautiful reports, and actionable recommendations for improving your datasets.
+A comprehensive tool for analyzing the quality of NLP datasets using Great Expectations and advanced diversity metrics. NLPBench provides detailed quality assessments, diversity measurements, beautiful reports, and actionable recommendations for improving your datasets.
+
+[img](./assets/screenie.png)
 
 ## Features
 
 - **Comprehensive Quality Analysis**: Validates schema, content length, role consistency, duplicates, and more
+- **Advanced Diversity Metrics**: Measures lexical, semantic, syntactic, and topic diversity with tiered analysis
+- **Great Expectations Integration**: Robust data validation framework with custom NLP expectations
 - **Multiple Dataset Formats**: Supports conversations, instruction-following, Q&A, and other common formats
 - **Rich Console Output**: Beautiful CLI interface with progress bars and colored output
 - **Multiple Report Formats**: Generate reports in console, JSON, or HTML format
 - **Configurable Validation Rules**: Customize quality thresholds and validation parameters
 - **Hugging Face Integration**: Direct integration with the Hugging Face Hub
+- **Optional Enhanced Metrics**: Advanced NLP analysis with sentence transformers, spaCy, and topic modeling
 
 ## Installation
 
@@ -26,6 +31,9 @@ cd nlpbench
 # Install dependencies
 uv sync
 
+# Install with enhanced diversity metrics (optional)
+uv sync --extra diversity
+
 # For development (includes dev dependencies)
 uv sync --group dev
 ```
@@ -38,8 +46,12 @@ git clone <repository-url>
 cd nlpbench
 pip install -e .
 
+# Install with enhanced diversity metrics
+pip install -e ".[diversity]"
+
 # Or install from PyPI (when available)
 pip install nlpbench
+pip install "nlpbench[diversity]"  # with enhanced metrics
 ```
 
 ## Quick Start
@@ -178,34 +190,29 @@ NLPBench evaluates datasets across multiple dimensions:
 - Uniqueness validation
 - Role distribution analysis
 
+### Diversity Metrics
+
+#### Basic Diversity (No Additional Dependencies)
+- **Lexical Diversity**: Type-Token Ratio (TTR), vocabulary richness
+- **Role Distribution**: Balance across conversation roles
+- **Length Variation**: Content length diversity and coefficient of variation
+- **Character Diversity**: Character set distribution and entropy
+
+#### Enhanced Diversity (Optional Dependencies)
+- **Semantic Diversity**: Embedding-based clustering and similarity analysis
+- **Syntactic Diversity**: Part-of-speech patterns and dependency structures
+- **Topic Diversity**: LDA-based topic modeling and distribution
+- **Advanced Lexical**: MTLD, MATTR, and readability scores
+
 ### Overall Scoring
 - Weighted quality score (0-100)
+- Diversity score (0-100)
 - Quality level classification
-- Actionable recommendations
-
-## Example Output
-
-```
-═════════════════════ Dataset Quality Report: databricks/databricks-dolly-15k ══════════════════════
-
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                                    Quality Assessment Summary                                     ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
-Dataset: databricks/databricks-dolly-15k
-Total Entries: 30,070
-Unique Entries: 28,940
-Quality Score: 87.3/100 (Good)
-Analysis Time: 23.45s
-Generated: 2025-01-09 14:30:15
-
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ ████████████████████████████████████████████▒▒▒▒▒▒ 87.3/100 - Good                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-```
+- Actionable recommendations for improvement
 
 ## Requirements
 
+### Core Dependencies
 - Python 3.8+
 - datasets >= 2.14.0
 - great-expectations >= 0.18.0
@@ -214,6 +221,17 @@ Generated: 2025-01-09 14:30:15
 - rich >= 13.0.0
 - tqdm >= 4.65.0
 - pandas >= 2.0.0
+- numpy >= 1.21.0
+
+### Optional Dependencies (for Enhanced Diversity Metrics)
+- sentence-transformers >= 2.2.0 (semantic analysis)
+- torch >= 1.9.0 (neural embeddings)
+- scikit-learn >= 1.0.0 (clustering and metrics)
+- nltk >= 3.7 (advanced lexical analysis)
+- textstat >= 0.7.0 (readability metrics)
+- spacy >= 3.4.0 (syntactic analysis)
+- gensim >= 4.2.0 (topic modeling)
+- umap-learn >= 0.5.0 (dimensionality reduction)
 
 ## Development
 
@@ -279,25 +297,6 @@ make clean            # Clean temporary files
 make build            # Build the package
 make demo             # Run demo analysis
 make demo-html        # Generate HTML demo report
-```
-
-### Project Structure
-
-```
-nlpbench/
-├── src/
-│   ├── __init__.py
-│   ├── main.py              # CLI entry point
-│   ├── models.py            # Pydantic models
-│   ├── dataset_loader.py    # HuggingFace integration
-│   ├── quality_checker.py   # Great Expectations logic
-│   ├── report_generator.py  # Report generation
-│   └── config.py            # Configuration management
-├── tests/
-│   └── test_quality.py      # Unit tests
-├── requirements.txt
-├── setup.py
-└── README.md
 ```
 
 ## Contributing

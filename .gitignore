@@ -173,3 +173,7 @@ uv.lock
 
 # Ruff
 .ruff_cache/
+
+# Reports and outputs
+*.html
+.json

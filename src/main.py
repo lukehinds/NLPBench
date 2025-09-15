@@ -1,4 +1,7 @@
+# Suppress third-party library warnings before any imports
+import os
 import time
+import warnings
 from pathlib import Path
 
 import click
@@ -6,9 +9,16 @@ from rich.console import Console
 
 from .config import get_config_example, load_config, save_default_config
 from .dataset_loader import DatasetLoader
-from .models import HuggingFaceDatasetInfo, QualityReport
+from .kaggle_loader import KaggleDatasetLoader
+from .models import HuggingFaceDatasetInfo, KaggleDatasetInfo, QualityReport
 from .quality_checker import DatasetQualityChecker
 from .report_generator import ReportGenerator
+
+# Suppress tokenizer warnings
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+# Suppress all deprecation warnings from third-party libraries
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 console = Console()
 
@@ -18,6 +28,11 @@ console = Console()
     "--hf-repo",
     type=str,
     help="Hugging Face dataset repository (e.g., 'databricks/databricks-dolly-15k')",
+)
+@click.option(
+    "--kaggle-dataset",
+    type=str,
+    help="Kaggle dataset ID (e.g., 'username/dataset-name')",
 )
 @click.option("--config", type=click.Path(exists=True), help="Path to configuration file")
 @click.option("--config-name", type=str, help="Dataset configuration name")
@@ -35,31 +50,56 @@ console = Console()
 )
 @click.option("--cache-dir", type=click.Path(), help="Cache directory for datasets")
 @click.option("--token", type=str, help="Hugging Face authentication token")
+@click.option("--kaggle-version", type=str, help="Kaggle dataset version (default: latest)")
+@click.option("--kaggle-path", type=str, help="Specific file path within Kaggle dataset")
+@click.option("--force-download", is_flag=True, help="Force re-download Kaggle dataset")
+@click.option("--quiet", is_flag=True, help="Suppress warning messages for cleaner output")
 @click.pass_context
-def cli(ctx, hf_repo, config, config_name, split, output_format, output_file, cache_dir, token):
+def cli(
+    ctx,
+    hf_repo,
+    kaggle_dataset,
+    config,
+    config_name,
+    split,
+    output_format,
+    output_file,
+    cache_dir,
+    token,
+    kaggle_version,
+    kaggle_path,
+    force_download,
+    quiet,
+):
     """
     NLPBench - Dataset Quality Measurement Tool
 
-    Analyze dataset quality using Great Expectations and generate comprehensive reports.
+    Analyze dataset quality from HuggingFace or Kaggle and generate comprehensive reports.
 
     Examples:
       nlpbench --hf-repo databricks/databricks-dolly-15k
+      nlpbench --kaggle-dataset prasad22/healthcare-dataset
       nlpbench --hf-repo microsoft/DialoGPT-medium --output-format html --output-file report.html
-      nlpbench analyze --hf-repo org/dataset --config custom_config.json
+      nlpbench --kaggle-dataset username/dataset --kaggle-path data.csv --output-format json
     """
 
     # If no command is provided, run the analyze command
     if ctx.invoked_subcommand is None:
-        if not hf_repo:
+        if not hf_repo and not kaggle_dataset:
             console.print(
-                "[red]Error: --hf-repo is required when running without a subcommand[/red]"
+                "[red]Error: Either --hf-repo or --kaggle-dataset is required when running without a subcommand[/red]"
             )
             console.print("Use 'nlpbench --help' for usage information.")
+            ctx.exit(1)
+
+        if hf_repo and kaggle_dataset:
+            console.print("[red]Error: Cannot specify both --hf-repo and --kaggle-dataset[/red]")
             ctx.exit(1)
 
         ctx.invoke(
             analyze,
             hf_repo=hf_repo,
+            kaggle_dataset=kaggle_dataset,
             config=config,
             config_name=config_name,
             split=split,
@@ -67,11 +107,16 @@ def cli(ctx, hf_repo, config, config_name, split, output_format, output_file, ca
             output_file=output_file,
             cache_dir=cache_dir,
             token=token,
+            kaggle_version=kaggle_version,
+            kaggle_path=kaggle_path,
+            force_download=force_download,
+            quiet=quiet,
         )
 
 
 @cli.command()
-@click.option("--hf-repo", type=str, required=True, help="Hugging Face dataset repository")
+@click.option("--hf-repo", type=str, help="Hugging Face dataset repository")
+@click.option("--kaggle-dataset", type=str, help="Kaggle dataset ID")
 @click.option("--config", type=click.Path(exists=True), help="Path to configuration file")
 @click.option("--config-name", type=str, help="Dataset configuration name")
 @click.option("--split", type=str, default="train", help="Dataset split to analyze")
@@ -84,31 +129,86 @@ def cli(ctx, hf_repo, config, config_name, split, output_format, output_file, ca
 @click.option("--output-file", type=click.Path(), help="Output file path")
 @click.option("--cache-dir", type=click.Path(), help="Cache directory for datasets")
 @click.option("--token", type=str, help="Hugging Face authentication token")
-def analyze(hf_repo, config, config_name, split, output_format, output_file, cache_dir, token):
-    """Analyze a Hugging Face dataset for quality issues."""
+@click.option("--kaggle-version", type=str, help="Kaggle dataset version")
+@click.option("--kaggle-path", type=str, help="Specific file path within Kaggle dataset")
+@click.option("--force-download", is_flag=True, help="Force re-download Kaggle dataset")
+@click.option("--quiet", is_flag=True, help="Suppress warning messages for cleaner output")
+def analyze(
+    hf_repo,
+    kaggle_dataset,
+    config,
+    config_name,
+    split,
+    output_format,
+    output_file,
+    cache_dir,
+    token,
+    kaggle_version,
+    kaggle_path,
+    force_download,
+    quiet,
+):
+    """Analyze a dataset (HuggingFace or Kaggle) for quality issues."""
 
     try:
         start_time = time.time()
 
+        # Validate input parameters
+        if not hf_repo and not kaggle_dataset:
+            console.print("[red]Error: Either --hf-repo or --kaggle-dataset is required[/red]")
+            return
+
+        if hf_repo and kaggle_dataset:
+            console.print("[red]Error: Cannot specify both --hf-repo and --kaggle-dataset[/red]")
+            return
+
         # Load configuration
         dataset_config = load_config(config)
-        console.print(f"[blue]Starting quality analysis for: {hf_repo}[/blue]")
+
+        # Determine dataset source and name
+        if hf_repo:
+            dataset_name = hf_repo
+            source_type = "HuggingFace"
+        else:
+            dataset_name = kaggle_dataset
+            source_type = "Kaggle"
+
+        console.print(
+            f"[blue]Starting quality analysis for {source_type} dataset: {dataset_name}[/blue]"
+        )
 
         # Validate output requirements
         if output_format in ["json", "html"] and not output_file:
             console.print(f"[red]Error: --output-file is required for {output_format} format[/red]")
             return
 
-        # Create dataset info
-        dataset_info = HuggingFaceDatasetInfo(
-            repo_id=hf_repo, config_name=config_name, split=split, cache_dir=cache_dir, token=token
-        )
-
-        # Load and process dataset
-        console.print("[blue]Loading dataset...[/blue]")
-        loader = DatasetLoader(dataset_info)
-        loader.load_dataset()
-        loader.process_dataset()
+        # Load and process dataset based on source type
+        if hf_repo:
+            # HuggingFace dataset
+            dataset_info = HuggingFaceDatasetInfo(
+                repo_id=hf_repo,
+                config_name=config_name,
+                split=split,
+                cache_dir=cache_dir,
+                token=token,
+            )
+            console.print("[blue]Loading dataset...[/blue]")
+            loader = DatasetLoader(dataset_info)
+            loader.load_dataset()
+            loader.process_dataset()
+        else:
+            # Kaggle dataset
+            dataset_info = KaggleDatasetInfo(
+                dataset_id=kaggle_dataset,
+                version=kaggle_version,
+                path=kaggle_path,
+                force_download=force_download,
+            )
+            console.print("[blue]Downloading and loading dataset...[/blue]")
+            loader = KaggleDatasetLoader(dataset_info)
+            loader.download_dataset()
+            loader.load_data_files()
+            loader.process_dataframes()
 
         if not loader.processed_data:
             console.print("[red]Error: No data could be processed from the dataset[/red]")
@@ -137,10 +237,10 @@ def analyze(hf_repo, config, config_name, split, output_format, output_file, cac
             # Create report
             execution_time = time.time() - start_time
             report = QualityReport(
-                dataset_name=hf_repo,
+                dataset_name=dataset_name,
                 quality_metrics=quality_metrics,
                 execution_time=execution_time,
-                config_used=dataset_config.dict(),
+                config_used=dataset_config.model_dump(),
             )
 
             # Generate reports
@@ -154,7 +254,7 @@ def analyze(hf_repo, config, config_name, split, output_format, output_file, cac
                 json_file = (
                     Path(output_file)
                     if output_file
-                    else Path(f"{hf_repo.replace('/', '_')}_quality_report.json")
+                    else Path(f"{dataset_name.replace('/', '_')}_quality_report.json")
                 )
                 report_generator.generate_json_report(report, json_file)
 
@@ -162,7 +262,7 @@ def analyze(hf_repo, config, config_name, split, output_format, output_file, cac
                 html_file = (
                     Path(output_file)
                     if output_file
-                    else Path(f"{hf_repo.replace('/', '_')}_quality_report.html")
+                    else Path(f"{dataset_name.replace('/', '_')}_quality_report.html")
                 )
                 report_generator.generate_html_report(report, html_file)
 
@@ -236,34 +336,92 @@ def show_config(config_format):
 
 
 @cli.command()
-@click.option("--hf-repo", type=str, required=True, help="Hugging Face dataset repository")
+@click.option("--hf-repo", type=str, help="Hugging Face dataset repository")
+@click.option("--kaggle-dataset", type=str, help="Kaggle dataset ID")
 @click.option("--config-name", type=str, help="Dataset configuration name")
 @click.option("--split", type=str, default="train", help="Dataset split to inspect")
 @click.option("--samples", type=int, default=5, help="Number of samples to show")
 @click.option("--cache-dir", type=click.Path(), help="Cache directory for datasets")
 @click.option("--token", type=str, help="Hugging Face authentication token")
-def inspect(hf_repo, config_name, split, samples, cache_dir, token):
+@click.option("--kaggle-version", type=str, help="Kaggle dataset version")
+@click.option("--kaggle-path", type=str, help="Specific file path within Kaggle dataset")
+@click.option("--force-download", is_flag=True, help="Force re-download Kaggle dataset")
+def inspect(
+    hf_repo,
+    kaggle_dataset,
+    config_name,
+    split,
+    samples,
+    cache_dir,
+    token,
+    kaggle_version,
+    kaggle_path,
+    force_download,
+):
     """Inspect a dataset without running full quality analysis."""
 
     try:
-        console.print(f"[blue]Inspecting dataset: {hf_repo}[/blue]")
+        # Validate input parameters
+        if not hf_repo and not kaggle_dataset:
+            console.print("[red]Error: Either --hf-repo or --kaggle-dataset is required[/red]")
+            return
 
-        dataset_info = HuggingFaceDatasetInfo(
-            repo_id=hf_repo, config_name=config_name, split=split, cache_dir=cache_dir, token=token
-        )
+        if hf_repo and kaggle_dataset:
+            console.print("[red]Error: Cannot specify both --hf-repo and --kaggle-dataset[/red]")
+            return
 
-        loader = DatasetLoader(dataset_info)
-        loader.load_dataset()
-        loader.process_dataset()
+        # Determine dataset source and name
+        if hf_repo:
+            dataset_name = hf_repo
+            source_type = "HuggingFace"
+        else:
+            dataset_name = kaggle_dataset
+            source_type = "Kaggle"
+
+        console.print(f"[blue]Inspecting {source_type} dataset: {dataset_name}[/blue]")
+
+        # Load and process dataset based on source type
+        if hf_repo:
+            # HuggingFace dataset
+            dataset_info = HuggingFaceDatasetInfo(
+                repo_id=hf_repo,
+                config_name=config_name,
+                split=split,
+                cache_dir=cache_dir,
+                token=token,
+            )
+            loader = DatasetLoader(dataset_info)
+            loader.load_dataset()
+            loader.process_dataset()
+        else:
+            # Kaggle dataset
+            dataset_info = KaggleDatasetInfo(
+                dataset_id=kaggle_dataset,
+                version=kaggle_version,
+                path=kaggle_path,
+                force_download=force_download,
+            )
+            loader = KaggleDatasetLoader(dataset_info)
+            loader.download_dataset()
+            loader.load_data_files()
+            loader.process_dataframes()
 
         # Show dataset info
         info = loader.get_dataset_info()
         console.print("\n[green]Dataset Info:[/green]")
-        console.print(f"  Repository: {info['repo_id']}")
-        console.print(f"  Split: {info['split']}")
-        console.print(f"  Raw entries: {info['raw_entries']:,}")
-        console.print(f"  Processed entries: {info['processed_entries']:,}")
-        console.print(f"  Features: {info.get('features', [])}")
+
+        if hf_repo:
+            console.print(f"  Repository: {info['repo_id']}")
+            console.print(f"  Split: {info['split']}")
+            console.print(f"  Raw entries: {info['raw_entries']:,}")
+            console.print(f"  Processed entries: {info['processed_entries']:,}")
+            console.print(f"  Features: {info.get('features', [])}")
+        else:
+            console.print(f"  Dataset ID: {info['dataset_id']}")
+            console.print(f"  Version: {info['version']}")
+            console.print(f"  Files loaded: {info['files_loaded']}")
+            console.print(f"  Processed entries: {info['processed_entries']:,}")
+            console.print(f"  Downloaded to: {info['downloaded_path']}")
 
         # Show role distribution
         if "role_distribution" in info:
