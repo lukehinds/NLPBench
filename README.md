@@ -2,7 +2,7 @@
 
 A comprehensive tool for analyzing the quality of NLP datasets using Great Expectations and advanced diversity metrics. NLPBench provides detailed quality assessments, diversity measurements, beautiful reports, and actionable recommendations for improving your datasets.
 
-![Terminal Screenshot of NLPBench Results][https://raw.githubusercontent.com/lukehinds/NLPBench/refs/heads/main/assets/screenie.png)
+![Terminal Screenshot of NLPBench Results](https://raw.githubusercontent.com/lukehinds/NLPBench/refs/heads/main/assets/screenie.png)
 
 ## Features
 
