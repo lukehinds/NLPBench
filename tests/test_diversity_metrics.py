@@ -282,19 +282,6 @@ class TestDiversityMetrics:
         assert score_high_lexical >= score_low_lexical
 
 
-def _enhanced_dependencies_available():
-    """Check if enhanced dependencies are available."""
-    try:
-        import gensim  # noqa: F401
-        import nltk  # noqa: F401
-        import sentence_transformers  # noqa: F401
-        import sklearn  # noqa: F401
-        import spacy  # noqa: F401
-        import textstat  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
 
 
 class TestDiversityMetricsEdgeCases:
